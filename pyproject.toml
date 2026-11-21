@@ -1,0 +1,13 @@
+[project]
+name = "prediction-markets"
+version = "1.0.0"
+description = "Do prediction-market prices mean what they say? A calibration study of resolved Polymarket markets."
+requires-python = ">=3.11"
+dependencies = ["requests>=2.31", "numpy>=1.26", "pandas>=2.1", "matplotlib>=3.8"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
