@@ -67,6 +67,35 @@ def ends(df):
     return out
 
 
+def mid_gap(df):
+    """Contracts priced 5-40%: how often they happened minus their price, in probability units."""
+    sub = df[(df.price >= 0.05) & (df.price < 0.40)]
+    p, y, ev = sub.price.to_numpy(), sub.yes_won.to_numpy(), sub.event_id.to_numpy()
+    lo, hi = cluster_bootstrap(ev, lambda i: y[i].mean() - p[i].mean(), N_BOOT, seed=6)
+    return {"n": len(sub), "gap": round(float(y.mean() - p.mean()), 4), "gap_lo": round(lo, 4), "gap_hi": round(hi, 4)}
+
+
+def timing_check(df):
+    """Robustness: does the result hold on markets whose snapshot time couldn't depend on the outcome?"""
+    out = {"share_fixed_time": round(float(df.drop_duplicates("market_id").fixed_time.mean()), 3)}
+    for h, d in df.groupby("horizon"):
+        fixed = d[d.fixed_time == 1]
+        out[int(h)] = {
+            "all": {"n": len(d), "slope": slope_with_ci(d), "mid_gap": mid_gap(d), "ends": ends(d)},
+            "fixed_time": {"n": len(fixed), "slope": slope_with_ci(fixed), "mid_gap": mid_gap(fixed), "ends": ends(fixed),
+                           "calibration": calibration_with_ci(fixed)},
+        }
+    return out
+
+
+def same_markets(df):
+    """Accuracy at each horizon on the same markets (those with a price 30, 7, and 1 day out)."""
+    have = df.groupby("market_id").horizon.nunique()
+    ids = have[have == 3].index
+    sub = df[df.market_id.isin(ids)]
+    return {"markets": len(ids), **{int(h): round(brier(d.price, d.yes_won), 5) for h, d in sub.groupby("horizon")}}
+
+
 def out_of_sample(df):
     train, test = df[df.close < SPLIT_DATE], df[df.close >= SPLIT_DATE]
     if len(train) < 100 or len(test) < 100:
@@ -118,6 +147,12 @@ def main():
             "brier": round(brier(d.price, d.yes_won), 5), "slope": slope_with_ci(d),
         }
     results["out_of_sample"] = out_of_sample(week)
+    results["timing_check"] = timing_check(df)
+    results["same_markets_brier"] = same_markets(df)
+    for h in (30, 7, 1):
+        t = results["timing_check"][h]
+        print(f"timing check {h}d: all mid-gap {t['all']['mid_gap']} slope {t['all']['slope']['slope']} | fixed-time n={t['fixed_time']['n']} mid-gap {t['fixed_time']['mid_gap']} slope {t['fixed_time']['slope']}")
+    print("same markets brier:", results["same_markets_brier"])
     print("out of sample (7d):", results["out_of_sample"])
     (ROOT / "results").mkdir(exist_ok=True)
     (ROOT / "results" / "metrics.json").write_text(json.dumps(results, indent=1))

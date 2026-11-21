@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import bisect
+import re
 from datetime import datetime, timedelta, timezone
 
 HORIZONS = (1, 7, 30)  # days before the market closed
@@ -46,10 +47,23 @@ def anchor_time(market: dict) -> datetime | None:
     return min(times) if times else None
 
 
+DEADLINE = re.compile(r"\b(?:by|before)\b", re.IGNORECASE)
+
+
+def fixed_time(market: dict) -> bool:
+    """True when the snapshot time can't depend on the outcome: the market resolved on schedule
+    (not more than a day early) and isn't a "will X happen by <date>?" question, where a YES
+    tends to arrive early and a NO waits for the deadline."""
+    end, closed = parse_time(market.get("end")), parse_time(market.get("closed"))
+    early = bool(end and closed and (end - closed) > timedelta(days=1))
+    return not early and not DEADLINE.search(market.get("question") or "")
+
+
 def horizon_rows(market: dict, history: list[list[float]], horizons=HORIZONS) -> list[dict]:
     close = anchor_time(market)
     if close is None:
         return []
+    fixed = int(fixed_time(market))
     history = sorted(history)
     rows = []
     for h in horizons:
@@ -66,6 +80,7 @@ def horizon_rows(market: dict, history: list[list[float]], horizons=HORIZONS) ->
                 "horizon": h,
                 "price": p,
                 "yes_won": int(market["yes_won"]),
+                "fixed_time": fixed,
             }
         )
     return rows
